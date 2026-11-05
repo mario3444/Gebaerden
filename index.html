@@ -31,17 +31,26 @@ button:focus-visible,.btn:focus-within,input:focus-visible{outline:3px solid var
 section{background:var(--card);border-radius:18px;padding:14px 16px;margin-top:18px}
 h2{font-size:19px;margin:0 0 4px}
 p{margin:4px 0;color:var(--mut)}
-input[type=text]{width:100%;font:inherit;padding:12px;border-radius:12px;border:2px solid var(--line);background:var(--bg);color:var(--ink);margin-top:8px}
+input[type=text],textarea{display:block;resize:vertical;width:100%;font:inherit;padding:12px;border-radius:12px;border:2px solid var(--line);background:var(--bg);color:var(--ink);margin-top:8px}
 label.row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px}
 select{font:inherit;padding:10px 12px;border-radius:10px;border:2px solid var(--line);background:var(--bg);color:var(--ink)}
 button.chip{width:auto;margin:0;display:inline-block;padding:8px 14px;border-radius:99px;font:400 16px "Atkinson Hyperlegible",system-ui,sans-serif;background:var(--card);color:var(--ink);border:1px solid var(--line)}
+#card{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;text-align:center;font-weight:700;font-size:clamp(32px,9vw,72px);color:#fff}
+#seq{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 0}#seq:empty{display:none}
+.two{display:grid;grid-template-columns:1fr 2fr;gap:10px}
+button.chip.ok{background:var(--acc);color:var(--onacc);border-color:var(--acc)}
+button.chip.no{background:transparent;color:var(--mut);border:1px dashed var(--mut)}
+button.chip.cur{outline:3px solid var(--hot);outline-offset:1px}
+#lists{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 0}.lrow{display:flex;gap:4px}
 input[type=file]{position:absolute;opacity:0;width:1px;height:1px}
 </style>
 </head>
 <body>
 <main>
 <h1>Gebärden live</h1>
-<div class="stage"><video id="v" muted playsinline></video><img id="im" alt="" hidden><div id="now"></div></div>
+<div class="stage"><video id="v" muted playsinline></video><img id="im" alt="" hidden><div id="card" hidden></div><div id="now"></div></div>
+<div id="seq"></div>
+<div class="two" id="ctl" hidden><button class="sec" id="prev">Zurück</button><button id="nxt">Weiter</button></div>
 <button id="mic">Zuhören starten</button>
 <div id="tr" aria-live="polite"></div>
 <div id="chips" aria-label="Erkannte Wörter"></div>
@@ -61,12 +70,18 @@ input[type=file]{position:absolute;opacity:0;width:1px;height:1px}
 <label class="row">Dauer pro Clip <select id="dur"><option value="0">Original</option><option value="0.7">0,7 s</option><option value="1">1 s</option><option value="1.5">1,5 s</option><option value="2">2 s</option><option value="3">3 s</option></select></label>
 <label class="row">Höchstes Tempo <select id="rate"><option value="1">Normal</option><option value="1.5">1,5×</option><option value="2">2×</option><option value="3">3×</option></select></label>
 <label class="row">Anfang überspringen <select id="skip"><option value="0">Nein</option><option value="0.3">0,3 s</option><option value="0.5">0,5 s</option><option value="1">1 s</option></select></label>
+<label class="row">Wörter ohne Clip überspringen <input type="checkbox" id="skipmiss" style="width:28px;height:28px"></label>
 </section>
 
 <section>
 <h2>Ohne Mikrofon testen</h2>
-<input id="t" type="text" placeholder="Satz eintippen, zum Beispiel: Ich möchte essen">
-<button class="sec" id="tb">Satz abspielen</button>
+<p>Satz oder Liedtext eintippen oder einfügen und laden. Dann tippst du aufs Bild oder auf „Weiter“, um das nächste Wort zu zeigen.</p>
+<textarea id="t" rows="4" placeholder="Satz oder Liedtext eintippen oder einfügen"></textarea>
+<button class="sec" id="tb">Text laden</button>
+<input id="ln" type="text" placeholder="Name zum Speichern, z. B. Tannenbaum">
+<button class="sec" id="sv">Als Liste speichern</button>
+<h2 style="margin-top:18px">Gespeicherte Listen</h2>
+<div id="lists"></div>
 </section>
 </main>
 
@@ -113,9 +128,12 @@ function find1(w){
   return null;
 }
 
-const cfg={dur:'1',rate:'2',skip:'0'};
+const cfg={dur:'1',rate:'2',skip:'0',miss:'1'};
 try{Object.assign(cfg,JSON.parse(localStorage.getItem('gcfg')||'{}'))}catch(e){}
 for(const id of ['dur','rate','skip']){const el=$('#'+id);el.value=cfg[id];el.onchange=()=>{cfg[id]=el.value;try{localStorage.setItem('gcfg',JSON.stringify(cfg))}catch(e){}}}
+
+const sm=$('#skipmiss');sm.checked=cfg.miss!=='0';
+sm.onchange=()=>{cfg.miss=sm.checked?'1':'0';try{localStorage.setItem('gcfg',JSON.stringify(cfg))}catch(e){}};
 
 /* Wiedergabe: Warteschlange, hält mit dem Sprechen Schritt */
 const q=[];let playing=false;const v=$('#v'),im=$('#im');
@@ -146,7 +164,49 @@ function lookup(w){
   try{navigator.clipboard.writeText(w.replace(/[^A-Za-zÄÖÜäöüß]/g,''))}catch(e){}
   window.open('https://gebaerden-archiv.at/search','_blank','noopener');
 }
+let seq=[],pos=-1,manual=false;
+const card=$('#card');
+function endSeq(){
+  manual=false;seq=[];pos=-1;tok++;playing=false;
+  $('#seq').replaceChildren();$('#ctl').hidden=true;card.hidden=true;
+  v.loop=false;v.pause();$('#now').textContent='';
+}
+function startSeq(text){
+  q.length=0;tok++;playing=false;
+  const ws=text.split(/\s+/).filter(Boolean);if(!ws.length)return;
+  seq=ws.map(w=>({w,k:find(w)}));
+  if(cfg.miss!=='0'){seq=seq.filter(x=>x.k);$('#tr').textContent=seq.length+' von '+ws.length+' Wörtern haben einen Clip'}
+  if(!seq.length){alert('Zu diesen Wörtern gibt es noch keine Clips.');return}
+  manual=true;
+  $('#seq').replaceChildren(...seq.map((x,i)=>{
+    const b=document.createElement('button');b.type='button';b.className='chip '+(x.k?'ok':'no');b.textContent=x.w;
+    b.onclick=e=>{e.stopPropagation();showSeq(i)};return b;
+  }));
+  $('#ctl').hidden=false;window.scrollTo({top:0,behavior:'smooth'});showSeq(0);
+}
+function showSeq(i){
+  if(i<0)i=0;
+  if(i>=seq.length){endSeq();return}
+  pos=i;tok++;
+  [...$('#seq').children].forEach((b,j)=>b.classList.toggle('cur',j===i));
+  const x=seq[i],c=x.k&&clips.get(x.k);v.loop=false;
+  if(!c){v.pause();v.hidden=true;im.hidden=true;card.hidden=false;card.textContent=x.w;$('#now').textContent='';return}
+  card.hidden=true;$('#now').textContent=c.name;
+  if(c.img){v.pause();v.hidden=true;im.hidden=false;im.src=c.url;return}
+  im.hidden=true;v.hidden=false;v.loop=true;v.src=c.url;
+  v.onloadedmetadata=()=>{
+    const st=+cfg.skip,go=st&&v.duration>st+0.5,d=v.duration-(go?st:0),T=+cfg.dur;
+    if(go)v.currentTime=st;
+    v.playbackRate=T&&d>T?Math.min(d/T,+cfg.rate):1;
+  };
+  v.play().catch(()=>{});
+}
+$('.stage').onclick=()=>{if(manual)showSeq(pos+1)};
+$('#nxt').onclick=()=>showSeq(pos+1);
+$('#prev').onclick=()=>showSeq(pos-1);
+
 function handle(words){
+  if(manual)return;
   for(const w of words){
     const k=find(w);
     const s=document.createElement('span');s.className=k?'ok':'no';s.textContent=w;
@@ -162,6 +222,7 @@ let rec,on=false,done={};
 const norm=x=>x.toLowerCase().replace(/[^a-zäöüß]/g,'');
 const mic=$('#mic');
 function start(){
+  endSeq();
   if(!SR){$('#tr').textContent='Spracherkennung ist hier nicht verfügbar. Öffne die Seite in Safari.';return}
   rec=new SR();rec.lang='de-AT';rec.continuous=true;rec.interimResults=true;
   rec.onresult=e=>{
@@ -183,8 +244,29 @@ function start(){
 function stop(){on=false;mic.textContent='Zuhören starten';mic.classList.remove('on');try{rec.stop()}catch(e){}}
 mic.onclick=()=>on?stop():start();
 
-$('#tb').onclick=()=>{const t=$('#t').value.trim();if(t)handle(t.split(/\s+/))};
-$('#t').onkeydown=e=>{if(e.key==='Enter')$('#tb').click()};
+$('#tb').onclick=()=>{const t=$('#t').value.trim();if(t)startSeq(t)};
+
+/* Gespeicherte Wortlisten */
+function getLists(){try{return JSON.parse(localStorage.getItem('glists')||'{}')}catch(e){return{}}}
+function putLists(o){try{localStorage.setItem('glists',JSON.stringify(o))}catch(e){alert('Speichern hat nicht geklappt.')}}
+function renderLists(){
+  const o=getLists(),names=Object.keys(o).sort((a,b)=>a.localeCompare(b,'de'));
+  if(!names.length){$('#lists').replaceChildren(Object.assign(document.createElement('p'),{textContent:'Noch keine Listen gespeichert.'}));return}
+  $('#lists').replaceChildren(...names.map(n=>{
+    const row=document.createElement('div');row.className='lrow';
+    const b=document.createElement('button');b.type='button';b.className='chip';b.textContent=n;
+    b.onclick=()=>{$('#t').value=o[n];$('#ln').value=n;startSeq(o[n])};
+    const x=document.createElement('button');x.type='button';x.className='chip';x.textContent='×';x.setAttribute('aria-label',n+' löschen');
+    x.onclick=()=>{if(confirm('„'+n+'“ löschen?')){const p=getLists();delete p[n];putLists(p);renderLists()}};
+    row.append(b,x);return row;
+  }));
+}
+$('#sv').onclick=()=>{
+  const n=$('#ln').value.trim(),t=$('#t').value.trim();
+  if(!n||!t){alert('Bitte Text und Namen eingeben.');return}
+  const o=getLists();o[n]=t;putLists(o);renderLists();
+};
+renderLists();
 restore();
 </script>
 </body>
