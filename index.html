@@ -34,6 +34,7 @@ p{margin:4px 0;color:var(--mut)}
 input[type=text]{width:100%;font:inherit;padding:12px;border-radius:12px;border:2px solid var(--line);background:var(--bg);color:var(--ink);margin-top:8px}
 label.row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px}
 select{font:inherit;padding:10px 12px;border-radius:10px;border:2px solid var(--line);background:var(--bg);color:var(--ink)}
+button.chip{width:auto;margin:0;display:inline-block;padding:8px 14px;border-radius:99px;font:400 16px "Atkinson Hyperlegible",system-ui,sans-serif;background:var(--card);color:var(--ink);border:1px solid var(--line)}
 input[type=file]{position:absolute;opacity:0;width:1px;height:1px}
 </style>
 </head>
@@ -81,11 +82,21 @@ const rq=r=>new Promise((ok,no)=>{r.onsuccess=()=>ok(r.result);r.onerror=()=>no(
 const DB=()=>new Promise((ok,no)=>{const r=indexedDB.open('gebaerden',1);r.onupgradeneeded=()=>r.result.createObjectStore('f');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
 async function save(k,b){try{(await DB()).transaction('f','readwrite').objectStore('f').put(b,k)}catch(e){}}
 async function restore(){try{const s=(await DB()).transaction('f').objectStore('f');const ks=await rq(s.getAllKeys()),vs=await rq(s.getAll());ks.forEach((k,i)=>add(k,vs[i]))}catch(e){}render()}
-function add(k,b){const img=(b.type||'').startsWith('image'),url=URL.createObjectURL(b);let ok=false;for(const a of k.split(',').map(x=>x.trim()).filter(Boolean)){for(const f of new Set([fold(a),fold2(a)])){const o=clips.get(f);if(o&&!o.img&&img)continue;clips.set(f,{url,img,name:a.normalize('NFC')});ok=true}}return ok}
+function add(k,b){const img=(b.type||'').startsWith('image'),url=URL.createObjectURL(b);let ok=false;for(const a of k.split(',').map(x=>x.trim()).filter(Boolean)){for(const f of new Set([fold(a),fold2(a)])){const o=clips.get(f);if(o&&!o.img&&img)continue;clips.set(f,{url,img,id:k,name:a.normalize('NFC')});ok=true}}return ok}
 function render(){
-  const ks=[...new Set([...clips.values()].map(c=>c.name))].sort();
-  $('#cnt').textContent=ks.length?ks.length+' Clips geladen':'Noch keine Clips geladen.';
-  $('#lib').replaceChildren(...ks.map(k=>Object.assign(document.createElement('span'),{textContent:k})));
+  const ids=[...new Set([...clips.values()].map(c=>c.id))].sort();
+  $('#cnt').textContent=ids.length?ids.length+' Clips geladen. Zum Löschen in der Liste antippen.':'Noch keine Clips geladen.';
+  $('#lib').replaceChildren(...ids.map(id=>{
+    const nm=id.split(',').map(x=>x.trim()).join(', '),b=document.createElement('button');
+    b.type='button';b.className='chip';b.textContent=nm+' ×';
+    b.onclick=()=>{if(confirm('„'+nm+'“ löschen?'))del(id)};
+    return b;
+  }));
+}
+async function del(id){
+  for(const [f,c] of [...clips])if(c.id===id)clips.delete(f);
+  try{(await DB()).transaction('f','readwrite').objectStore('f').delete(id)}catch(e){}
+  render();
 }
 $('#f').onchange=e=>{for(const f of e.target.files){const k=key(f.name);if(add(k,f))save(k,f)}render();e.target.value=''};
 
