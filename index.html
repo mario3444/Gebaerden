@@ -82,6 +82,8 @@ input[type=file]{position:absolute;opacity:0;width:1px;height:1px}
 <button class="sec" id="sv">Als Liste speichern</button>
 <h2 style="margin-top:18px">Gespeicherte Listen</h2>
 <div id="lists"></div>
+<div class="two" style="grid-template-columns:1fr 1fr"><button class="sec" id="lx">Listen kopieren</button><button class="sec" id="li">Listen einfügen</button></div>
+<p>Sichern: „Listen kopieren“ tippen und in Notizen einfügen. Wiederherstellen: den Text aus Notizen kopieren, „Listen einfügen“ tippen und einfügen.</p>
 </section>
 </main>
 
@@ -100,7 +102,7 @@ async function restore(){try{const s=(await DB()).transaction('f').objectStore('
 function add(k,b){const img=(b.type||'').startsWith('image'),url=URL.createObjectURL(b);let ok=false;for(const a of k.split(',').map(x=>x.trim()).filter(Boolean)){for(const f of new Set([fold(a),fold2(a)])){const o=clips.get(f);if(o&&!o.img&&img)continue;clips.set(f,{url,img,id:k,name:a.normalize('NFC')});ok=true}}return ok}
 function render(){
   const ids=[...new Set([...clips.values()].map(c=>c.id))].sort();
-  $('#cnt').textContent=ids.length?ids.length+' Clips geladen. Zum Löschen in der Liste antippen.':'Noch keine Clips geladen.';
+  $('#cnt').textContent=ids.length?ids.length+' Clips geladen. Zum Löschen in der Liste antippen.':'Noch keine Clips geladen. Waren schon welche da, hat Safari sie gelöscht. Wähle die Videos einfach neu aus (alle auf einmal markieren).';
   $('#lib').replaceChildren(...ids.map(id=>{
     const nm=id.split(',').map(x=>x.trim()).join(', '),b=document.createElement('button');
     b.type='button';b.className='chip';b.textContent=nm+' ×';
@@ -266,7 +268,18 @@ $('#sv').onclick=()=>{
   if(!n||!t){alert('Bitte Text und Namen eingeben.');return}
   const o=getLists();o[n]=t;putLists(o);renderLists();
 };
+$('#lx').onclick=async()=>{
+  const t=JSON.stringify(getLists());
+  try{await navigator.clipboard.writeText(t);alert('Listen kopiert. Füge sie jetzt in Notizen ein.')}
+  catch(e){prompt('Diesen Text kopieren:',t)}
+};
+$('#li').onclick=()=>{
+  const t=prompt('Gesicherten Text hier einfügen:');if(!t)return;
+  try{const n=JSON.parse(t.replace(/[“”„]/g,'"'));if(!n||typeof n!=='object')throw 0;putLists({...getLists(),...n});renderLists()}
+  catch(e){alert('Das war keine gültige Sicherung.')}
+};
 renderLists();
+try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 restore();
 </script>
 </body>
