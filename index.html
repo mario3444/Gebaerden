@@ -75,7 +75,7 @@ input[type=file]{position:absolute;opacity:0;width:1px;height:1px}
 
 <section>
 <h2>Ohne Mikrofon testen</h2>
-<p>Satz oder Liedtext eintippen oder einfügen und laden. Dann tippst du aufs Bild oder auf „Weiter“, um das nächste Wort zu zeigen.</p>
+<p>Satz oder Liedtext eintippen oder einfügen und laden. Dann tippst du aufs Bild oder auf „Weiter“, um das nächste Wort zu zeigen. Mit Tastatur oder einem externen Taster, der Tasten sendet, geht es auch: Leertaste, Enter oder Pfeil rechts schalten weiter, Pfeil links geht zurück. Mit einer Maus: Linksklick (egal wo) schaltet weiter, Rechtsklick geht zurück.</p>
 <textarea id="t" rows="4" placeholder="Satz oder Liedtext eintippen oder einfügen"></textarea>
 <button class="sec" id="tb">Text laden</button>
 <input id="ln" type="text" placeholder="Name zum Speichern, z. B. Tannenbaum">
@@ -205,6 +205,25 @@ function showSeq(i){
 }
 $('.stage').onclick=()=>{if(manual)showSeq(pos+1)};
 $('#nxt').onclick=()=>showSeq(pos+1);
+addEventListener('keydown',e=>{
+  if(!manual)return;
+  const t=e.target.tagName;
+  if(t==='INPUT'||t==='TEXTAREA'||t==='SELECT')return;
+  if(t==='BUTTON'&&(e.key===' '||e.key==='Enter'))return;
+  if([' ','Enter','ArrowRight','ArrowDown','PageDown'].includes(e.key)){e.preventDefault();showSeq(pos+1)}
+  else if(['ArrowLeft','ArrowUp','PageUp','Backspace'].includes(e.key)){e.preventDefault();showSeq(pos-1)}
+});
+addEventListener('pointerup',e=>{
+  if(!manual||e.pointerType!=='mouse')return;
+  if(e.target.closest('button,input,textarea,select,label,a'))return;
+  if(e.button===0&&e.target.closest('.stage'))return;
+  if(e.button===0)showSeq(pos+1);else if(e.button===2)showSeq(pos-1);
+});
+addEventListener('contextmenu',e=>{if(manual&&!e.target.closest('input,textarea,select'))e.preventDefault()});
+try{
+  navigator.mediaSession.setActionHandler('nexttrack',()=>{if(manual)showSeq(pos+1)});
+  navigator.mediaSession.setActionHandler('previoustrack',()=>{if(manual)showSeq(pos-1)});
+}catch(e){}
 $('#prev').onclick=()=>showSeq(pos-1);
 
 function handle(words){
